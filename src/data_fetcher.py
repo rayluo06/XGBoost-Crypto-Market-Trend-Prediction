@@ -42,7 +42,7 @@ KLINE_COLUMNS = [
 def fetch_klines(
     symbol: str,
     interval: str = "1h",
-    limit: int = 500,
+    limit: int = 5000,
     retries: int = 3,
     backoff: float = 2.0,
 ) -> pd.DataFrame:
@@ -56,7 +56,8 @@ def fetch_klines(
     interval : str
         Candlestick interval understood by Binance (e.g. '1h', '4h').
     limit : int
-        Number of candles to retrieve (max 1000).
+        Number of candles to retrieve. Values above 1000 are fetched in
+        batches using backward pagination.
     retries : int
         Number of retry attempts on network errors.
     backoff : float
@@ -69,24 +70,53 @@ def fetch_klines(
         Numeric columns are cast to float64; open_time is a UTC datetime index.
     """
     url = f"{BINANCE_BASE_URL}{KLINES_ENDPOINT}"
-    params = {"symbol": symbol, "interval": interval, "limit": limit}
 
-    delay = backoff
-    for attempt in range(retries):
-        try:
-            response = requests.get(url, params=params, timeout=10)
-            response.raise_for_status()
+    def _request_batch(params: dict) -> list:
+        nonlocal backoff
+        delay = backoff
+        for attempt in range(retries):
+            try:
+                response = requests.get(url, params=params, timeout=10)
+                response.raise_for_status()
+                return response.json()
+            except requests.RequestException as exc:
+                if attempt == retries - 1:
+                    raise RuntimeError(
+                        f"Failed to fetch klines for {symbol} after {retries} attempts: {exc}"
+                    ) from exc
+                time.sleep(delay)
+                delay *= 2
+        return []
+
+    remaining = limit
+    end_time: int | None = None
+    all_rows: list = []
+
+    while remaining > 0:
+        batch_size = min(1000, remaining)
+        params = {"symbol": symbol, "interval": interval, "limit": batch_size}
+        if end_time is not None:
+            params["endTime"] = end_time
+
+        raw = _request_batch(params)
+        if not raw:
             break
-        except requests.RequestException as exc:
-            if attempt == retries - 1:
-                raise RuntimeError(
-                    f"Failed to fetch klines for {symbol} after {retries} attempts: {exc}"
-                ) from exc
-            time.sleep(delay)
-            delay *= 2
 
-    raw = response.json()
-    df = pd.DataFrame(raw, columns=KLINE_COLUMNS)
+        all_rows.extend(raw)
+        remaining -= len(raw)
+
+        # Prepare next batch to fetch older candles. Binance returns data in
+        # ascending order by open time.
+        first_open_time = int(raw[0][0])
+        end_time = first_open_time - 1
+
+        # Stop early if fewer rows than requested were returned (no more history).
+        if len(raw) < batch_size:
+            break
+
+    df = pd.DataFrame(all_rows, columns=KLINE_COLUMNS)
+
+    df = df.sort_values("open_time")
 
     numeric_cols = [
         "open", "high", "low", "close", "volume",
@@ -100,7 +130,7 @@ def fetch_klines(
     return df
 
 
-def fetch_all_symbols(interval: str = "1h", limit: int = 500) -> dict[str, pd.DataFrame]:
+def fetch_all_symbols(interval: str = "1h", limit: int = 5000) -> dict[str, pd.DataFrame]:
     """
     Fetch klines for every symbol in ``SYMBOLS``.
 

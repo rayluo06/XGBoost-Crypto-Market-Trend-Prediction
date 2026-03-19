@@ -16,7 +16,6 @@ import numpy as np
 import pandas as pd
 from xgboost import XGBClassifier
 from xgboost.callback import EarlyStopping
-from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import (
     accuracy_score,
     precision_recall_fscore_support,
@@ -143,21 +142,56 @@ class CryptoTrendModel:
             keep = feature_columns
         return keep, ranked
 
+    def _walk_forward_splits(self, n_samples: int, n_splits: int) -> list[tuple[np.ndarray, np.ndarray]]:
+        """Walk-forward validation splits with fixed validation window."""
+        if n_samples < 2:
+            return []
+        val_size = max(MIN_VAL_SAMPLES, int(n_samples * MIN_VAL_RATIO))
+        max_allowed = max(int(n_samples * MAX_VAL_RATIO), 1)
+        val_size = min(val_size, max_allowed)
+
+        splits: list[tuple[np.ndarray, np.ndarray]] = []
+        for fold in range(n_splits):
+            end_val = n_samples - (n_splits - fold - 1) * val_size
+            start_val = end_val - val_size
+            if start_val <= 0 or end_val > n_samples:
+                continue
+            train_idx = np.arange(0, start_val)
+            val_idx = np.arange(start_val, end_val)
+            if len(train_idx) == 0 or len(val_idx) == 0:
+                continue
+            splits.append((train_idx, val_idx))
+        return splits
+
     def _cross_val_auc(
         self,
-        X: np.ndarray,
-        y: np.ndarray,
+        df: pd.DataFrame,
+        candidate_columns: list[str],
         params: dict,
         n_splits: int,
         verbose: bool,
         label: str | None = None,
+        threshold: float | None = None,
     ) -> tuple[float, list[float]]:
-        tscv = TimeSeriesSplit(n_splits=n_splits)
+        splits = self._walk_forward_splits(len(df), n_splits)
+        if not splits:
+            return float("nan"), []
+
         oof_aucs: list[float] = []
 
-        for fold, (train_idx, val_idx) in enumerate(tscv.split(X)):
-            X_tr, X_val = X[train_idx], X[val_idx]
-            y_tr, y_val = y[train_idx], y[val_idx]
+        for fold, (train_idx, val_idx) in enumerate(splits):
+            train_df = df.iloc[train_idx]
+            val_df = df.iloc[val_idx]
+            selected = self._select_top_features(train_df, candidate_columns)
+            if threshold is not None:
+                selected, _ = self._prune_with_importance(
+                    train_df, selected, params, threshold=threshold
+                )
+
+            X_tr = train_df[selected].values
+            X_val = val_df[selected].values
+            y_tr = train_df[self.target_column].values
+            y_val = val_df[self.target_column].values
 
             fold_model = XGBClassifier(**params)
             fit_kwargs = {
@@ -187,7 +221,7 @@ class CryptoTrendModel:
                 prefix = f"[{self.symbol}]"
                 if label:
                     prefix += f" {label}"
-                print(f"  {prefix} fold {fold + 1}/{n_splits}  AUC={auc:.4f}")
+                print(f"  {prefix} fold {fold + 1}/{len(splits)}  AUC={auc:.4f}")
 
         return float(np.mean(oof_aucs)), oof_aucs
 
@@ -207,7 +241,7 @@ class CryptoTrendModel:
         """
         Train on a feature DataFrame that contains a target column.
 
-        Uses time-series cross-validation to report out-of-fold AUC before
+        Uses walk-forward cross-validation to report out-of-fold AUC before
         fitting the final model on all available data. Optionally runs a
         small hyper-parameter grid search and prunes uninformative features
         using XGBoost feature importances.
@@ -243,8 +277,6 @@ class CryptoTrendModel:
         )
 
         available = [c for c in FEATURE_COLUMNS if c in df.columns]
-        selected = self._select_top_features(df, available)
-        X = df[selected].values
         y = df[self.target_column].values
 
         # Handle class imbalance by up-weighting the minority class.
@@ -270,12 +302,19 @@ class CryptoTrendModel:
         for idx, params in enumerate(candidates):
             label = f"grid#{idx + 1}" if len(candidates) > 1 else None
             mean_auc, fold_aucs = self._cross_val_auc(
-                X, y, params, n_splits=n_splits, verbose=verbose, label=label
+                df,
+                available,
+                params,
+                n_splits=n_splits,
+                verbose=verbose,
+                label=label,
+                threshold=threshold,
             )
             cv_results.append({"params": params, "mean_auc": mean_auc, "folds": fold_aucs})
-            if mean_auc > best_mean_auc:
+            score = mean_auc if not np.isnan(mean_auc) else -np.inf
+            if score > best_mean_auc:
                 best_idx = idx
-                best_mean_auc = mean_auc
+                best_mean_auc = score
 
         self.params = candidates[best_idx]
         mean_auc = best_mean_auc
@@ -286,24 +325,23 @@ class CryptoTrendModel:
                 f"mean OOF AUC={mean_auc:.4f}"
             )
 
-        importance_ranking: list[tuple[str, float]] = []
-        if threshold is not None:
-            # threshold=0.0 keeps only positively important predictors
-            pruned, importance_ranking = self._prune_with_importance(
-                df, selected, self.params, threshold=threshold
-            )
-            if pruned != selected and verbose:
-                print(
-                    f"  [{self.symbol}] importance pruning kept {len(pruned)}/{len(selected)} features"
-                )
-            selected = pruned
-            X = df[selected].values
-            mean_auc, best_folds = self._cross_val_auc(
-                X, y, self.params, n_splits=n_splits, verbose=verbose, label="pruned"
-            )
-
         if verbose:
             print(f"  [{self.symbol}] mean OOF AUC = {mean_auc:.4f}")
+
+        # Determine feature set on full data for final training
+        selected = self._select_top_features(df, available)
+        importance_ranking: list[tuple[str, float]] = []
+        if threshold is not None:
+            selected, importance_ranking = self._prune_with_importance(
+                df, selected, self.params, threshold=threshold
+            )
+            if verbose:
+                print(
+                    f"  [{self.symbol}] importance pruning kept {len(selected)}/{len(available)} features"
+                )
+
+        X = df[selected].values
+        y = df[self.target_column].values
 
         # Re-train on the full data set
         # Hold out a modest validation slice: at least MIN_VAL_SAMPLES or
