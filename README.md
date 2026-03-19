@@ -61,7 +61,7 @@ python -m src.train
 
 This fetches the last 1 000 hourly candles for each symbol, engineers features,
 trains two XGBoost classifiers per symbol (primitive vs. 1% return targets) with
-time-series cross-validation, a small regularisation grid search, feature
+time-series cross-validation, a small regularization grid search, feature
 importance pruning, and simple baselines for comparison. One model file per
 target variant is saved to `models/`.
 
@@ -125,7 +125,7 @@ JSON output example:
 The repository now concentrates solely on producing robust probability
 predictions. Training uses strict chronological splits, cross-validation, and
 early stopping on a held-out validation window (AUC). Feature space is
-regularised by correlation-based selection and rolling, stationary transforms
+regularized by correlation-based selection and rolling, stationary transforms
 to reduce noise.
 
 ---
@@ -157,7 +157,7 @@ data before any feature selection:
 - **Targets**:
   - Primitive: close price 4 candles ahead > current close
   - Threshold: forward return > **1%**
-- **Regularisation**: small grid search across stronger regularisation options,
+- **Regularization**: small grid search across stronger regularization options,
   early stopping, feature-importance pruning after correlation pre-filtering
 - **Validation**: Time-series cross-validation (`TimeSeriesSplit`, 5 folds) +
   early stopping on a chronological hold-out slice using AUC

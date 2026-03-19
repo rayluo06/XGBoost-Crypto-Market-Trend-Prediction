@@ -117,8 +117,7 @@ class CryptoTrendModel:
         threshold: float,
     ) -> tuple[list[str], list[tuple[str, float]]]:
         """Use XGBoost feature importances to drop uninformative predictors."""
-        if threshold is None:
-            threshold = 0.0
+        threshold = float(threshold)
 
         quick_params = params.copy()
         quick_params["n_estimators"] = min(quick_params.get("n_estimators", 200), 300)

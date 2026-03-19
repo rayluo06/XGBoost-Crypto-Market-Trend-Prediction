@@ -97,7 +97,9 @@ def add_volatility_context(df: pd.DataFrame) -> pd.DataFrame:
     """Volatility context via realized volatility and ATR as a % of price."""
     returns = df["close"].pct_change()
     for window in [6, 24]:
-        df[f"realized_vol_{window}"] = returns.rolling(window).std() * np.sqrt(window)
+        df[f"realized_volatility_{window}"] = (
+            returns.rolling(window).std() * np.sqrt(window)
+        )
     df["atr_pct"] = df["atr_14"] / df["close"].replace(0, np.nan)
     return df
 
@@ -276,7 +278,7 @@ FEATURE_COLUMNS = [
     "macd_line", "macd_signal", "macd_hist", "macd_hist_slope_3",
     "ema_7_slope", "ema_21_slope",
     "bb_upper", "bb_lower", "bb_pct_b", "bb_width",
-    "atr_14", "atr_pct", "realized_vol_6", "realized_vol_24",
+    "atr_14", "atr_pct", "realized_volatility_6", "realized_volatility_24",
     "adx_14", "plus_di_14", "minus_di_14",
     "stoch_k", "stoch_d",
     "obv", "vpt", "vpt_ma_14",
