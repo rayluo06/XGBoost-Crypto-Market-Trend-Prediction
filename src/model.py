@@ -154,7 +154,7 @@ class CryptoTrendModel:
         for fold in range(n_splits):
             end_val = n_samples - (n_splits - fold - 1) * val_size
             start_val = end_val - val_size
-            if start_val <= 0 or end_val > n_samples:
+            if start_val <= 0 or start_val >= end_val:
                 continue
             train_idx = np.arange(0, start_val)
             val_idx = np.arange(start_val, end_val)
