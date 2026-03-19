@@ -28,39 +28,50 @@ TARGET_CONFIGS = [
 MIN_TRAIN_SAMPLES = 100
 
 REGULARIZATION_GRID = [
-    XGBOOST_PARAMS.copy(),
     {
         **XGBOOST_PARAMS,
-        "subsample": 0.6,
-        "colsample_bytree": 0.6,
-        "reg_alpha": 1.0,
-        "reg_lambda": 3.0,
-        "min_child_weight": 6,
-        "gamma": 1.2,
-        "n_estimators": 600,
-    },
-    {
-        **XGBOOST_PARAMS,
-        "learning_rate": 0.03,
-        "n_estimators": 1000,
-        "subsample": 0.8,
-        "colsample_bytree": 0.8,
-        "reg_alpha": 0.8,
-        "reg_lambda": 3.5,
-        "max_depth": 4,
-        "gamma": 1.0,
-    },
-    {
-        **XGBOOST_PARAMS,
-        "learning_rate": 0.025,
-        "n_estimators": 900,
         "max_depth": 2,
-        "min_child_weight": 8,
-        "subsample": 0.7,
-        "colsample_bytree": 0.7,
-        "gamma": 1.5,
-        "reg_alpha": 1.2,
+        "n_estimators": 300,
+        "learning_rate": 0.03,
+        "reg_alpha": 2.0,
+        "reg_lambda": 10.0,
+        "min_child_weight": 10,
+        "subsample": 0.6,
+        "colsample_bytree": 0.5,
+    },
+    {
+        **XGBOOST_PARAMS,
+        "max_depth": 3,
+        "n_estimators": 500,
+        "learning_rate": 0.05,
+        "reg_alpha": 1.0,
         "reg_lambda": 5.0,
+        "min_child_weight": 6,
+        "subsample": 0.7,
+        "colsample_bytree": 0.6,
+    },
+    {
+        **XGBOOST_PARAMS,
+        "max_depth": 2,
+        "n_estimators": 800,
+        "learning_rate": 0.02,
+        "reg_alpha": 3.0,
+        "reg_lambda": 15.0,
+        "min_child_weight": 15,
+        "subsample": 0.5,
+        "colsample_bytree": 0.4,
+        "gamma": 3.0,
+    },
+    {
+        **XGBOOST_PARAMS,
+        "max_depth": 4,
+        "n_estimators": 150,
+        "learning_rate": 0.1,
+        "reg_alpha": 0.5,
+        "reg_lambda": 3.0,
+        "min_child_weight": 8,
+        "subsample": 0.8,
+        "colsample_bytree": 0.7,
     },
 ]
 
@@ -75,7 +86,7 @@ def _safe_auc(y_true, y_prob):
 def evaluate_baselines(df_feat, target_col: str) -> dict:
     """Compare simple baselines (persistence, momentum, crossover)."""
     y_true = df_feat[target_col].values
-    required_cols = {"return_4h", "roc_6", "ema_7", "ema_21"}
+    required_cols = {"return_24h", "roc_6", "ema_7_21_cross"}
     if missing := required_cols - set(df_feat.columns):
         return {
             "missing_features": {
@@ -85,9 +96,9 @@ def evaluate_baselines(df_feat, target_col: str) -> dict:
             }
         }
     baselines = {
-        "positive_return_4h": (df_feat["return_4h"] > 0).astype(int).values,
+        "positive_return_24h": (df_feat["return_24h"] > 0).astype(int).values,
         "momentum_roc6": (df_feat["roc_6"] > 0).astype(int).values,
-        "ema7_gt_ema21": (df_feat["ema_7"] > df_feat["ema_21"]).astype(int).values,
+        "ema7_gt_ema21": (df_feat["ema_7_21_cross"] > 0).astype(int).values,
     }
     results: dict[str, dict[str, float | None]] = {}
     for name, preds in baselines.items():
@@ -100,7 +111,7 @@ def evaluate_baselines(df_feat, target_col: str) -> dict:
 def train_symbol(
     symbol: str,
     interval: str = "1h",
-    limit: int = 1000,
+    limit: int = 5000,
     n_splits: int = 5,
     verbose: bool = True,
 ) -> dict:
@@ -114,9 +125,9 @@ def train_symbol(
     interval : str
         Binance kline interval.
     limit : int
-        Number of historical candles to fetch (max 1000).
+        Number of historical candles to fetch (fetched in 1 000-sized batches).
     n_splits : int
-        Time-series cross-validation folds.
+        Walk-forward cross-validation folds.
     verbose : bool
         Print progress to stdout.
 
@@ -226,8 +237,8 @@ def main() -> None:
     parser.add_argument(
         "--limit",
         type=int,
-        default=1000,
-        help="Number of historical candles per symbol (max 1000).",
+        default=5000,
+        help="Number of historical candles per symbol (walk-back up to limit).",
     )
     parser.add_argument(
         "--splits",

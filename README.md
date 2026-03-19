@@ -57,9 +57,9 @@ pip install -r requirements.txt
 python -m src.train
 ```
 
-This fetches the last 1 000 hourly candles for each symbol, engineers features,
-trains an XGBoost classifier per symbol with
-time-series cross-validation, a small regularization grid search, feature
+This fetches ~5 000 hourly candles for each symbol (via backward pagination),
+engineers features, trains an XGBoost classifier per symbol with
+walk-forward cross-validation, a broader regularization grid search, feature
 importance pruning, and simple baselines for comparison. One model file per
 symbol is saved to `models/`.
 
@@ -74,8 +74,8 @@ Optional arguments:
 |------|---------|-------------|
 | `--symbols` | all 10 | Space-separated list of symbols to train |
 | `--interval` | `1h` | Binance kline interval |
-| `--limit` | `1000` | Number of historical candles (max 1,000) |
-| `--splits` | `5` | Time-series CV folds |
+| `--limit` | `5000` | Number of historical candles (paginated) |
+| `--splits` | `5` | Walk-forward CV folds |
 
 ### 2. Make predictions
 
@@ -129,22 +129,16 @@ to reduce noise.
 
 ## Features
 
-FEATURE_COLUMNS contains **46 total indicators** derived from OHLCV candlestick
-data before any feature selection:
+FEATURE_COLUMNS now focuses on **24 stationary, ratio/return-based indicators**:
 
-- **Moving averages**: SMA & EMA (7, 14, 21, 50 periods) + EMA slopes
-- **RSI** (14-period) + short-term RSI slope
-- **MACD** (12/26/9): line, signal, histogram + histogram slope
-- **Trend-strength**: ADX (+DI / -DI)
-- **Bollinger Bands**: upper/lower bands, %B, bandwidth
-- **Volatility context**: ATR, ATR as % of price, realized volatility (6, 24)
-- **Stochastic Oscillator** (%K, %D)
-- **Volume trends**: OBV, Volume Price Trend (VPT) + VPT MA(14)
-- **Price features**: 1h/4h/24h returns, candle body/wick ratios, H-L spread
-- **Volume features**: volume MAs, relative volume, taker-buy ratio
-- **Rate of Change** (3, 6, 12, 24 periods)
-- **Stationarity helpers**: rolling z-scores for returns/volume, 24-period
-  percentile rank of close
+- **EMA cross ratios**: ema_7 / ema_21 - 1, ema_21 / ema_50 - 1
+- **Momentum**: RSI(14) + slope(3), MACD histogram + slope(3), ROC(6, 24)
+- **Volatility**: ATR% of price, Bollinger %B and width, realized vol (24)
+- **Volume**: relative volume (vs. 14), volume z-score (24), taker-buy ratio,
+  OBV rate-of-change (6)
+- **Price action**: 1h/24h returns, candle body ratio, high-low spread,
+  return z-score (24), close percentile rank (24)
+- **Trend strength**: ADX(14), +DI / -DI difference
 
 ---
 
@@ -152,11 +146,11 @@ data before any feature selection:
 
 - **Algorithm**: XGBoost binary classifier (`XGBClassifier`)
 - **Target**: close price 4 candles ahead > current close
-- **Regularization**: small grid search across stronger regularization options,
+- **Regularization**: broader grid across depth/learning-rate/regularization,
   early stopping, feature-importance pruning after correlation pre-filtering
-- **Validation**: Time-series cross-validation (`TimeSeriesSplit`, 5 folds) +
-  early stopping on a chronological hold-out slice using AUC
-- **Baselines**: positive 4h return, ROC(6) momentum, EMA(7/21) crossover
+- **Validation**: Walk-forward cross-validation (5 folds) + early stopping on a
+  chronological hold-out slice using AUC
+- **Baselines**: positive 24h return, ROC(6) momentum, EMA(7/21) crossover ratio
 - **Output**: Probability in **[0, 1]** — higher values indicate a stronger
   uptrend signal for the next 4 hours
 
