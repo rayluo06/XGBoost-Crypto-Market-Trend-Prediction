@@ -264,6 +264,7 @@ class CryptoTrendModel:
 
         importance_ranking: list[tuple[str, float]] = []
         if threshold is not None:
+            # threshold=0.0 still prunes zero-importance predictors
             pruned, importance_ranking = self._prune_with_importance(
                 df, selected, self.params, threshold=threshold
             )
