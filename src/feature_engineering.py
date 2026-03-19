@@ -19,6 +19,13 @@ def _ema(series: pd.Series, span: int) -> pd.Series:
     return series.ewm(span=span, adjust=False).mean()
 
 
+def _rolling_zscore(series: pd.Series, window: int) -> pd.Series:
+    mean = series.rolling(window).mean()
+    std = series.rolling(window).std()
+    std_safe = std.where(std != 0, np.nan)
+    return (series - mean) / std_safe
+
+
 def add_moving_averages(df: pd.DataFrame) -> pd.DataFrame:
     """Simple and exponential moving averages (7, 14, 21, 50 periods)."""
     for period in [7, 14, 21, 50]:
@@ -119,6 +126,25 @@ def add_momentum(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def add_stationary_transforms(df: pd.DataFrame, window: int = 24) -> pd.DataFrame:
+    """Rolling z-scores / percentile ranks to stabilize feature scales over time."""
+    returns = df["close"].pct_change()
+    df["return_zscore_24"] = _rolling_zscore(returns, window)
+    df["volume_zscore_24"] = _rolling_zscore(df["volume"], window)
+
+    def _percentile_rank(arr: np.ndarray) -> float:
+        if len(arr) < 2:
+            return np.nan
+        sorted_arr = np.sort(arr)
+        denom = len(arr) - 1
+        return float(np.searchsorted(sorted_arr, arr[-1]) / denom)
+
+    df["close_percentile_24"] = df["close"].rolling(window).apply(
+        _percentile_rank, raw=True
+    )
+    return df
+
+
 # ---------------------------------------------------------------------------
 # Public interface
 # ---------------------------------------------------------------------------
@@ -153,6 +179,7 @@ def build_features(df: pd.DataFrame, horizon: int = 4) -> pd.DataFrame:
     df = add_price_features(df)
     df = add_volume_features(df)
     df = add_momentum(df)
+    df = add_stationary_transforms(df)
 
     # Target: 1 if close price `horizon` candles ahead is higher than current
     df["target"] = (df["close"].shift(-horizon) > df["close"]).astype(int)
@@ -185,4 +212,5 @@ FEATURE_COLUMNS = [
     "body_ratio", "upper_wick", "lower_wick", "hl_spread",
     "volume_ma_7", "volume_ma_14", "rel_volume", "taker_buy_ratio",
     "roc_3", "roc_6", "roc_12", "roc_24",
+    "return_zscore_24", "volume_zscore_24", "close_percentile_24",
 ]
