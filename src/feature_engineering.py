@@ -19,6 +19,13 @@ def _ema(series: pd.Series, span: int) -> pd.Series:
     return series.ewm(span=span, adjust=False).mean()
 
 
+def _rolling_zscore(series: pd.Series, window: int) -> pd.Series:
+    mean = series.rolling(window).mean()
+    std = series.rolling(window).std()
+    std_safe = std.where(std != 0, np.nan)
+    return (series - mean) / std_safe
+
+
 def add_moving_averages(df: pd.DataFrame) -> pd.DataFrame:
     """Simple and exponential moving averages (7, 14, 21, 50 periods)."""
     for period in [7, 14, 21, 50]:
@@ -120,19 +127,17 @@ def add_momentum(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def add_stationary_transforms(df: pd.DataFrame, window: int = 24) -> pd.DataFrame:
-    """Rolling z-scores / percentile ranks to stabilise feature scales over time."""
+    """Rolling z-scores / percentile ranks to stabilize feature scales over time."""
     returns = df["close"].pct_change()
-    ret_mean = returns.rolling(window).mean()
-    ret_std = returns.rolling(window).std()
-    df["return_zscore_24"] = (returns - ret_mean) / ret_std.replace(0, np.nan)
-
-    vol_mean = df["volume"].rolling(window).mean()
-    vol_std = df["volume"].rolling(window).std()
-    df["volume_zscore_24"] = (df["volume"] - vol_mean) / vol_std.replace(0, np.nan)
+    df["return_zscore_24"] = _rolling_zscore(returns, window)
+    df["volume_zscore_24"] = _rolling_zscore(df["volume"], window)
 
     def _percentile_rank(arr: np.ndarray) -> float:
+        if len(arr) < 2:
+            return np.nan
         sorted_arr = np.sort(arr)
-        return float(np.searchsorted(sorted_arr, arr[-1]) / (len(arr) - 1))
+        denom = len(arr) - 1
+        return float(np.searchsorted(sorted_arr, arr[-1]) / denom)
 
     df["close_percentile_24"] = df["close"].rolling(window).apply(
         _percentile_rank, raw=True

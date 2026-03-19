@@ -9,6 +9,7 @@ re-training.
 from __future__ import annotations
 
 import os
+import warnings
 import joblib
 import numpy as np
 import pandas as pd
@@ -34,6 +35,10 @@ XGBOOST_PARAMS: dict = {
     "random_state": 42,
     "n_jobs": -1,
 }
+
+MIN_VAL_SAMPLES = 10
+MIN_VAL_RATIO = 0.1
+MAX_VAL_RATIO = 0.2
 
 
 class CryptoTrendModel:
@@ -80,7 +85,13 @@ class CryptoTrendModel:
         )
         ranked = corr.sort_values(ascending=False)
         keep = ranked.head(self.top_features).index.tolist()
-        return keep if keep else candidate_columns
+        if keep:
+            return keep
+        warnings.warn(
+            f"[{self.symbol}] No usable correlations for feature selection; "
+            f"using all {len(candidate_columns)} features."
+        )
+        return candidate_columns
 
     # ------------------------------------------------------------------
     # Training
@@ -143,8 +154,15 @@ class CryptoTrendModel:
             print(f"  [{self.symbol}] mean OOF AUC = {mean_auc:.4f}")
 
         # Re-train on the full data set
-        split_idx = int(len(X) * 0.8)
-        split_idx = min(max(split_idx, 1), len(X) - 1)
+        # Hold out a modest validation slice: at least MIN_VAL_SAMPLES or
+        # MIN_VAL_RATIO of the data, but never more than MAX_VAL_RATIO so most
+        # history remains for training.
+        min_required = max(MIN_VAL_SAMPLES, int(len(X) * MIN_VAL_RATIO))
+        max_allowed = max(int(len(X) * MAX_VAL_RATIO), 1)
+        val_size = min(min_required, max_allowed)
+        if len(X) - val_size < 1:
+            val_size = max(1, len(X) - 1)
+        split_idx = len(X) - val_size
         X_train, X_val = X[:split_idx], X[split_idx:]
         y_train, y_val = y[:split_idx], y[split_idx:]
 
@@ -186,7 +204,10 @@ class CryptoTrendModel:
                 "Call train() or load() first."
             )
         if not self._feature_columns:
-            raise RuntimeError("Model metadata missing feature columns.")
+            raise RuntimeError(
+                "Model feature columns not set or empty. "
+                "Ensure train() or load() has completed successfully."
+            )
         available = [c for c in self._feature_columns if c in df.columns]
         X = df[available].values
         return self._model.predict_proba(X)[:, 1]

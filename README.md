@@ -118,7 +118,9 @@ to reduce noise.
 
 ## Features
 
-The model uses **38 technical indicators** derived from OHLCV candlestick data:
+FEATURE_COLUMNS contains **38 total indicators** derived from OHLCV candlestick
+data (35 technical features plus 3 stationarity-based helpers) before any
+feature selection:
 
 - **Moving averages**: SMA & EMA (7, 14, 21, 50 periods)
 - **RSI** (14-period)
