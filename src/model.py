@@ -250,7 +250,12 @@ class CryptoTrendModel:
         # Handle class imbalance by up-weighting the minority class.
         pos = float((y == 1).sum())
         neg = float((y == 0).sum())
-        scale_pos_weight = neg / pos if pos else 1.0
+        if pos + neg == 0:
+            scale_pos_weight = 1.0
+        elif pos == 0:
+            scale_pos_weight = 1.0
+        else:
+            scale_pos_weight = neg / pos
 
         base_candidates = param_grid if param_grid else [self.params]
         candidates = []
