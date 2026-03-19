@@ -124,9 +124,9 @@ def add_obv(df: pd.DataFrame) -> pd.DataFrame:
 def add_volume_price_trend(df: pd.DataFrame) -> pd.DataFrame:
     """Volume Price Trend — cumulative volume weighted by price change."""
     pct_change = df["close"].pct_change().fillna(0)
-    vpt = (pct_change * df["volume"]).cumsum()
-    df["vpt"] = vpt
-    df["vpt_ma_14"] = vpt.rolling(14).mean()
+    volume_price_trend = (pct_change * df["volume"]).cumsum()
+    df["vpt"] = volume_price_trend
+    df["vpt_ma_14"] = volume_price_trend.rolling(14).mean()
     return df
 
 

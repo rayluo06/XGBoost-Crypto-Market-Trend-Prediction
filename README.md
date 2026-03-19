@@ -140,7 +140,7 @@ data before any feature selection:
 - **MACD** (12/26/9): line, signal, histogram + histogram slope
 - **Trend-strength**: ADX (+DI / -DI)
 - **Bollinger Bands**: upper/lower bands, %B, bandwidth
-- **Volatility context**: ATR, ATR as % of price, realised volatility (6, 24)
+- **Volatility context**: ATR, ATR as % of price, realized volatility (6, 24)
 - **Stochastic Oscillator** (%K, %D)
 - **Volume trends**: OBV, Volume Price Trend (VPT) + VPT MA(14)
 - **Price features**: 1h/4h/24h returns, candle body/wick ratios, H-L spread
