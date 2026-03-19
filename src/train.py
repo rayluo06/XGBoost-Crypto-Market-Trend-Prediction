@@ -26,6 +26,8 @@ TARGET_CONFIGS = [
     {"name": "return_1pct", "target_col": "target_return_1pct", "variant": "return1pct"},
 ]
 
+MIN_TRAIN_SAMPLES = 100
+
 REGULARIZATION_GRID = [
     XGBOOST_PARAMS.copy(),
     {
@@ -109,7 +111,7 @@ def train_symbol(
     df_raw = fetch_klines(symbol, interval=interval, limit=limit)
     df_feat = build_features(df_raw, horizon=4)
 
-    if len(df_feat) < 100:
+    if len(df_feat) < MIN_TRAIN_SAMPLES:
         msg = (
             f"  WARNING: only {len(df_feat)} samples for {symbol}. "
             "Skipping to avoid unreliable training."

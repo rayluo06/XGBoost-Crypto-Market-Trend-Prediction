@@ -10,6 +10,8 @@ requires >1% forward return for a positive class.
 import numpy as np
 import pandas as pd
 
+RETURN_THRESHOLD = 0.01
+
 
 # ---------------------------------------------------------------------------
 # Individual indicator helpers
@@ -64,8 +66,8 @@ def add_trend_strength(df: pd.DataFrame) -> pd.DataFrame:
     """Trend-strength cues: slopes of RSI/MACD and short/medium EMA slopes."""
     df["rsi_slope_3"] = _slope(df["rsi_14"], window=3)
     df["macd_hist_slope_3"] = _slope(df["macd_hist"], window=3)
-    df["ema_7_slope"] = df["ema_7"].diff()
-    df["ema_21_slope"] = df["ema_21"].diff()
+    df["ema_7_slope"] = _slope(df["ema_7"], window=1)
+    df["ema_21_slope"] = _slope(df["ema_21"], window=1)
     return df
 
 
@@ -248,7 +250,8 @@ def build_features(df: pd.DataFrame, horizon: int = 4) -> pd.DataFrame:
     current_close = df["close"]
     df["target"] = (future_close > current_close).astype(int)
     df["target_return_1pct"] = (
-        (future_close - current_close) / current_close.replace(0, np.nan) > 0.01
+        (future_close - current_close) / current_close.replace(0, np.nan)
+        > RETURN_THRESHOLD
     ).astype(int)
 
     # Drop raw OHLCV columns that are not features
