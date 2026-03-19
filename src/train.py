@@ -50,6 +50,18 @@ REGULARIZATION_GRID = [
         "max_depth": 4,
         "gamma": 1.0,
     },
+    {
+        **XGBOOST_PARAMS,
+        "learning_rate": 0.025,
+        "n_estimators": 900,
+        "max_depth": 2,
+        "min_child_weight": 8,
+        "subsample": 0.7,
+        "colsample_bytree": 0.7,
+        "gamma": 1.5,
+        "reg_alpha": 1.2,
+        "reg_lambda": 5.0,
+    },
 ]
 
 

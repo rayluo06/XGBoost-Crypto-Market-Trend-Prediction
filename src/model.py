@@ -247,7 +247,17 @@ class CryptoTrendModel:
         X = df[selected].values
         y = df[self.target_column].values
 
-        candidates = param_grid if param_grid else [self.params]
+        # Handle class imbalance by up-weighting the minority class.
+        pos = float((y == 1).sum())
+        neg = float((y == 0).sum())
+        scale_pos_weight = neg / pos if pos else 1.0
+
+        base_candidates = param_grid if param_grid else [self.params]
+        candidates = []
+        for params in base_candidates:
+            candidate = params.copy()
+            candidate.setdefault("scale_pos_weight", scale_pos_weight)
+            candidates.append(candidate)
         cv_results: list[dict] = []
         best_idx = 0
         best_mean_auc = -np.inf
