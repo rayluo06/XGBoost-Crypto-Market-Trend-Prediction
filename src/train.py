@@ -172,7 +172,7 @@ def train_symbol(
     df_feat = None
     cached_from_store = False
     latest_raw = df_raw.index.max()
-    if use_feature_store and latest_raw is not None:
+    if use_feature_store and not df_raw.empty:
         cached, meta = store.load(
             symbol,
             interval,

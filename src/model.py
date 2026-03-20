@@ -51,6 +51,9 @@ IMPORTANCE_ESTIMATORS_CAP = 300
 IMPORTANCE_ESTIMATORS_BASE = 200
 STABILITY_CV_CUTOFF = 1.5
 MIN_REGIME_SAMPLES = 20
+MIN_STABLE_FEATURES = 10
+BULL_BEAR_THRESHOLD = 1.0
+VOLATILITY_THRESHOLD_METHOD = "median"
 
 _FIT_PARAMS = signature(XGBClassifier.fit).parameters
 SUPPORTS_CALLBACKS = "callbacks" in _FIT_PARAMS
@@ -293,11 +296,11 @@ class CryptoTrendModel:
         masks: dict[str, pd.Series] = {}
         if "price_over_ema_200" in df.columns:
             price = df["price_over_ema_200"]
-            masks["bull"] = price >= 1.0
-            masks["bear"] = price < 1.0
+            masks["bull"] = price >= BULL_BEAR_THRESHOLD
+            masks["bear"] = price < BULL_BEAR_THRESHOLD
         if "realized_volatility_24" in df.columns:
             vol = df["realized_volatility_24"]
-            threshold = vol.median()
+            threshold = vol.median() if VOLATILITY_THRESHOLD_METHOD == "median" else vol.mean()
             masks["high_vol"] = vol >= threshold
             masks["low_vol"] = vol < threshold
         return masks
@@ -391,7 +394,10 @@ class CryptoTrendModel:
         }
 
     def _apply_stability_filter(
-        self, features: list[str], stability: dict[str, dict[str, dict]], min_keep: int = 10
+        self,
+        features: list[str],
+        stability: dict[str, dict[str, dict[str, float]]],
+        min_keep: int = MIN_STABLE_FEATURES,
     ) -> list[str]:
         """Down-weight or drop unstable features across regimes/time."""
         if not features:
@@ -438,8 +444,10 @@ class CryptoTrendModel:
             val_df = df.iloc[train_end:val_end]
             test_df = df.iloc[val_end:test_end]
 
-            model = XGBClassifier(**params)
-            model.fit(train_df[features].values, train_df[self.target_column].values, verbose=False)
+            window_model = XGBClassifier(**params)
+            window_model.fit(
+                train_df[features].values, train_df[self.target_column].values, verbose=False
+            )
 
             def _safe_auc(sub_df: pd.DataFrame) -> float:
                 if len(sub_df) < MIN_VAL_SAMPLES:
@@ -448,7 +456,7 @@ class CryptoTrendModel:
                     return float(
                         roc_auc_score(
                             sub_df[self.target_column].values,
-                            model.predict_proba(sub_df[features].values)[:, 1],
+                            window_model.predict_proba(sub_df[features].values)[:, 1],
                         )
                     )
                 except ValueError:
@@ -676,7 +684,9 @@ class CryptoTrendModel:
             importance_log, regime_auc_log, regime_consistency
         )
         stability_filtered = self._apply_stability_filter(
-            selected, stability_report, min_keep=max(10, len(selected) // 2)
+            selected,
+            stability_report,
+            min_keep=max(MIN_STABLE_FEATURES, len(selected) // 2),
         )
         if stability_filtered:
             selected = stability_filtered
@@ -851,7 +861,11 @@ class CryptoTrendModel:
         y_train, y_val = y[:-val_size], y[-val_size:]
 
         updated_models: list[XGBClassifier] = []
-        for model in self._bag_models or ([self._model] if self._model else []):
+        models_to_update = self._bag_models or []
+        if not models_to_update and self._model:
+            models_to_update = [self._model]
+
+        for model in models_to_update:
             params = model.get_params()
             base_estimators = params.get("n_estimators", self.params.get("n_estimators", 200))
             params["n_estimators"] = base_estimators + extra_rounds
