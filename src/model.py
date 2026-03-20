@@ -411,7 +411,7 @@ class CryptoTrendModel:
         scored: list[tuple[str, float]] = []
         for feat in features:
             info = stability_map.get(feat)
-            is_unstable = bool(info and info.get("cv", 0) > STABILITY_CV_CUTOFF)
+            is_unstable = info and info.get("cv", 0) > STABILITY_CV_CUTOFF
             has_buffer = len(features) > min_keep
             if is_unstable and has_buffer:
                 continue
@@ -420,7 +420,7 @@ class CryptoTrendModel:
         if not scored:
             return features
         scored_sorted = sorted(scored, key=lambda kv: kv[1], reverse=True)
-        keep_n = max(min_keep, len(scored_sorted))
+        keep_n = min(len(scored_sorted), min_keep)
         return [feat for feat, _ in scored_sorted[:keep_n]]
 
     def _walk_forward_optimization(
@@ -699,15 +699,18 @@ class CryptoTrendModel:
         walk_forward_report = self._walk_forward_optimization(
             df, selected, self.params
         )
-        performance_drift = None
+        performance_degradation = None
         if walk_forward_report:
-            test_aucs = [
-                w["test_auc"]
-                for w in walk_forward_report
-                if w.get("test_auc") is not None and not np.isnan(w.get("test_auc"))
-            ]
+            test_aucs = []
+            for window in walk_forward_report:
+                val = window.get("test_auc")
+                if val is None:
+                    continue
+                if isinstance(val, float) and np.isnan(val):
+                    continue
+                test_aucs.append(val)
             if len(test_aucs) >= 2:
-                performance_drift = test_aucs[0] - test_aucs[-1]
+                performance_degradation = test_aucs[0] - test_aucs[-1]
 
         X = df[selected].values
         y = df[self.target_column].values
@@ -829,7 +832,7 @@ class CryptoTrendModel:
             "search_summary": search_summary,
             "stability_report": stability_report,
             "walk_forward": walk_forward_report,
-            "performance_drift": performance_drift,
+            "performance_degradation": performance_degradation,
         }
 
     def incremental_fit(

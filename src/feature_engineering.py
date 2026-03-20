@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import requests
 import hashlib
+import json
 from typing import Optional
 
 from .data_fetcher import fetch_klines
@@ -503,5 +504,7 @@ FEATURE_COLUMNS = [
 ]
 
 # Cached feature store version anchored to the current FEATURE_COLUMNS layout.
-_FEATURE_SIG = hashlib.sha256("|".join(FEATURE_COLUMNS).encode()).hexdigest()[:8]
+_FEATURE_SIG = hashlib.sha256(
+    json.dumps(FEATURE_COLUMNS, separators=(",", ":")).encode()
+).hexdigest()[:8]
 FEATURE_VERSION = f"v2-{_FEATURE_SIG}"
