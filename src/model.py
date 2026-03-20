@@ -400,7 +400,9 @@ class CryptoTrendModel:
         scored: list[tuple[str, float]] = []
         for feat in features:
             info = stability_map.get(feat)
-            if info and info.get("cv", 0) > STABILITY_CV_CUTOFF and len(features) > min_keep:
+            is_unstable = bool(info and info.get("cv", 0) > STABILITY_CV_CUTOFF)
+            has_buffer = len(features) > min_keep
+            if is_unstable and has_buffer:
                 continue
             score = info.get("stability_score", 0.0) if info else 0.0
             scored.append((feat, score))
@@ -851,7 +853,8 @@ class CryptoTrendModel:
         updated_models: list[XGBClassifier] = []
         for model in self._bag_models or ([self._model] if self._model else []):
             params = model.get_params()
-            params["n_estimators"] = params.get("n_estimators", self.params.get("n_estimators", 200)) + extra_rounds
+            base_estimators = params.get("n_estimators", self.params.get("n_estimators", 200))
+            params["n_estimators"] = base_estimators + extra_rounds
             updated = XGBClassifier(**params)
             fit_kwargs = {
                 "verbose": False,

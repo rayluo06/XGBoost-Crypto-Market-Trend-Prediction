@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import os
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Optional
 
 import pandas as pd
 
@@ -34,7 +34,7 @@ class FeatureStore:
         self.root = os.path.abspath(root)
         self.version = version
 
-    def _paths(self, symbol: str, interval: str, horizon: int) -> Tuple[str, str]:
+    def _paths(self, symbol: str, interval: str, horizon: int) -> tuple[str, str]:
         directory = os.path.join(self.root, symbol.upper(), interval)
         filename = f"{symbol.upper()}_{interval}_h{horizon}_{self.version}.parquet"
         return directory, os.path.join(directory, filename)
@@ -50,7 +50,7 @@ class FeatureStore:
         horizon: int,
         expected_end: Optional[str] = None,
         min_rows: Optional[int] = None,
-    ) -> tuple[Optional[pd.DataFrame], Optional[Dict[str, Any]]]:
+    ) -> tuple[Optional[pd.DataFrame], Optional[dict[str, Any]]]:
         """
         Load cached features if they match the current version and freshness.
         """
@@ -84,7 +84,7 @@ class FeatureStore:
         feature_version: str,
         source_start: str,
         source_end: str,
-    ) -> tuple[str, Dict[str, Any]]:
+    ) -> tuple[str, dict[str, Any]]:
         """
         Persist features plus lineage metadata.
         """
