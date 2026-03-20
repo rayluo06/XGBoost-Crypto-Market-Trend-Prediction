@@ -300,7 +300,12 @@ class CryptoTrendModel:
             masks["bear"] = price < BULL_BEAR_THRESHOLD
         if "realized_volatility_24" in df.columns:
             vol = df["realized_volatility_24"]
-            threshold = vol.median() if VOLATILITY_THRESHOLD_METHOD == "median" else vol.mean()
+            if VOLATILITY_THRESHOLD_METHOD == "median":
+                threshold = vol.median()
+            elif VOLATILITY_THRESHOLD_METHOD == "mean":
+                threshold = vol.mean()
+            else:
+                threshold = vol.median()
             masks["high_vol"] = vol >= threshold
             masks["low_vol"] = vol < threshold
         return masks
@@ -415,7 +420,7 @@ class CryptoTrendModel:
         if not scored:
             return features
         scored_sorted = sorted(scored, key=lambda kv: kv[1], reverse=True)
-        keep_n = min(len(scored_sorted), min_keep)
+        keep_n = max(min_keep, len(scored_sorted))
         return [feat for feat, _ in scored_sorted[:keep_n]]
 
     def _walk_forward_optimization(
@@ -694,7 +699,7 @@ class CryptoTrendModel:
         walk_forward_report = self._walk_forward_optimization(
             df, selected, self.params
         )
-        degradation = None
+        performance_drift = None
         if walk_forward_report:
             test_aucs = [
                 w["test_auc"]
@@ -702,7 +707,7 @@ class CryptoTrendModel:
                 if w.get("test_auc") is not None and not np.isnan(w.get("test_auc"))
             ]
             if len(test_aucs) >= 2:
-                degradation = test_aucs[-1] - test_aucs[0]
+                performance_drift = test_aucs[0] - test_aucs[-1]
 
         X = df[selected].values
         y = df[self.target_column].values
@@ -824,7 +829,7 @@ class CryptoTrendModel:
             "search_summary": search_summary,
             "stability_report": stability_report,
             "walk_forward": walk_forward_report,
-            "performance_degradation": degradation,
+            "performance_drift": performance_drift,
         }
 
     def incremental_fit(
@@ -870,10 +875,16 @@ class CryptoTrendModel:
             base_estimators = params.get("n_estimators", self.params.get("n_estimators", 200))
             params["n_estimators"] = base_estimators + extra_rounds
             updated = XGBClassifier(**params)
+            booster = None
+            try:
+                booster = model.get_booster()
+            except Exception:
+                booster = None
             fit_kwargs = {
                 "verbose": False,
-                "xgb_model": model.get_booster(),
             }
+            if booster is not None:
+                fit_kwargs["xgb_model"] = booster
             updated.fit(X_train, y_train, **fit_kwargs)
             updated_models.append(updated)
 

@@ -208,6 +208,7 @@ def train_symbol(
                 source_start=df_raw.index.min().isoformat(),
                 source_end=latest_raw.isoformat(),
             )
+    df_feat = df_feat.sort_index()
 
     if len(df_feat) < MIN_TRAIN_SAMPLES:
         msg = (
@@ -309,10 +310,10 @@ def train_symbol(
                     f"    search: best={ss.get('best_source')} "
                     f"grid_best={ss.get('grid_best_auc')} bayes_best={ss.get('bayes_best_auc')}"
                 )
-            if metrics.get("performance_degradation") is not None:
+            if metrics.get("performance_drift") is not None:
                 print(
-                    f"    walk-forward drift: {metrics['performance_degradation']:+.4f} "
-                    "(test_auc end-start)"
+                    f"    walk-forward drift: {metrics['performance_drift']:+.4f} "
+                    "(positive = degradation from first to last test window)"
                 )
             print(f"  Feature columns used ({cfg['name']}): {len(metrics['features'])}")
 

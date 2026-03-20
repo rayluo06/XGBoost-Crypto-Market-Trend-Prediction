@@ -503,5 +503,5 @@ FEATURE_COLUMNS = [
 ]
 
 # Cached feature store version anchored to the current FEATURE_COLUMNS layout.
-_FEATURE_SIG = hashlib.sha1("|".join(FEATURE_COLUMNS).encode()).hexdigest()[:8]
+_FEATURE_SIG = hashlib.sha256("|".join(FEATURE_COLUMNS).encode()).hexdigest()[:8]
 FEATURE_VERSION = f"v2-{_FEATURE_SIG}"
