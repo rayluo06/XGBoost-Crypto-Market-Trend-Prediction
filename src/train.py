@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import argparse
 import sys
+from typing import Optional
 
 from sklearn.metrics import accuracy_score, roc_auc_score
 
 from .data_fetcher import SYMBOLS, fetch_klines
-from .feature_engineering import build_features
+from .feature_engineering import build_features, FEATURE_VERSION
+from .feature_store import FeatureStore, DEFAULT_FEATURE_STORE_DIR
 from .model import CryptoTrendModel, XGBOOST_PARAMS
 
 
@@ -26,6 +28,7 @@ TARGET_CONFIGS = [
 ]
 
 MIN_TRAIN_SAMPLES = 100
+DEFAULT_HORIZON = 4
 
 REGULARIZATION_GRID = [
     {
@@ -114,6 +117,12 @@ def train_symbol(
     limit: int = 5000,
     n_splits: int = 5,
     verbose: bool = True,
+    use_feature_store: bool = True,
+    feature_store_dir: Optional[str] = None,
+    incremental: bool = False,
+    incremental_window: int = 500,
+    incremental_rounds: int = 200,
+    bayes_trials: int = 20,
 ) -> dict:
     """
     Fetch data, build features, train and save a model for *symbol*.
@@ -130,6 +139,19 @@ def train_symbol(
         Walk-forward cross-validation folds.
     verbose : bool
         Print progress to stdout.
+    use_feature_store : bool
+        Whether to reuse or persist features via the on-disk feature store.
+    feature_store_dir : str | None
+        Custom directory for the feature store (default: project-level store).
+    incremental : bool
+        If True, attempt an incremental update of an existing model rather than
+        a full retrain.
+    incremental_window : int
+        Number of most recent samples to use for incremental updates.
+    incremental_rounds : int
+        Additional boosting rounds when performing incremental updates.
+    bayes_trials : int
+        Optuna trials to run when augmenting the grid search with Bayesian search.
 
     Returns
     -------
@@ -143,14 +165,49 @@ def train_symbol(
     btc_ref = None
     if symbol.upper() != "BTCUSDT":
         btc_ref = fetch_klines("BTCUSDT", interval=interval, limit=limit)
-    df_feat = build_features(
-        df_raw,
-        horizon=4,
-        symbol=symbol,
-        interval=interval,
-        limit=limit,
-        btc_df=btc_ref,
+
+    store = FeatureStore(
+        root=feature_store_dir or DEFAULT_FEATURE_STORE_DIR, version=FEATURE_VERSION
     )
+    df_feat = None
+    cached_from_store = False
+    latest_raw = df_raw.index.max()
+    if use_feature_store and latest_raw is not None:
+        cached, meta = store.load(
+            symbol,
+            interval,
+            horizon=DEFAULT_HORIZON,
+            expected_end=latest_raw.isoformat(),
+            min_rows=MIN_TRAIN_SAMPLES,
+        )
+        if cached is not None:
+            df_feat = cached
+            cached_from_store = True
+            if verbose:
+                print(
+                    f"  [{symbol}] loaded {len(df_feat)} cached feature rows "
+                    f"(version={meta.get('feature_version')})"
+                )
+
+    if df_feat is None:
+        df_feat = build_features(
+            df_raw,
+            horizon=DEFAULT_HORIZON,
+            symbol=symbol,
+            interval=interval,
+            limit=limit,
+            btc_df=btc_ref,
+        )
+        if use_feature_store and latest_raw is not None:
+            store.save(
+                df_feat,
+                symbol=symbol,
+                interval=interval,
+                horizon=DEFAULT_HORIZON,
+                feature_version=FEATURE_VERSION,
+                source_start=df_raw.index.min().isoformat(),
+                source_end=latest_raw.isoformat(),
+            )
 
     if len(df_feat) < MIN_TRAIN_SAMPLES:
         msg = (
@@ -179,13 +236,47 @@ def train_symbol(
             importance_threshold=0.01,
             val_gap=24,
         )
+
+        if incremental:
+            try:
+                model.load()
+                update_df = df_feat.tail(max(incremental_window, MIN_TRAIN_SAMPLES))
+                inc_metrics = model.incremental_fit(
+                    update_df,
+                    extra_rounds=incremental_rounds,
+                    verbose=verbose,
+                )
+                path = model.save()
+                baselines = evaluate_baselines(df_feat, target_col=target_col)
+                if verbose:
+                    print(
+                        f"  [{symbol}] incremental update applied with "
+                        f"{len(update_df)} rows and +{incremental_rounds} rounds"
+                    )
+                results.append(
+                    {
+                        "symbol": symbol,
+                        "target": cfg["name"],
+                        "status": "incremental",
+                        "model_path": path,
+                        "baselines": baselines,
+                        "feature_cache": cached_from_store,
+                        **inc_metrics,
+                    }
+                )
+                continue
+            except FileNotFoundError:
+                if verbose:
+                    print(
+                        f"  [{symbol}] no existing model found; falling back to full training."
+                    )
         metrics = model.train(
             df_feat,
             n_splits=n_splits,
             verbose=verbose,
             target_column=target_col,
             param_grid=REGULARIZATION_GRID,
-            bayes_trials=20,
+            bayes_trials=bayes_trials,
         )
         path = model.save()
         baselines = evaluate_baselines(df_feat, target_col=target_col)
@@ -212,6 +303,17 @@ def train_symbol(
                 f"train: acc={train_acc_fmt} prec={train_prec_fmt} rec={train_rec_fmt} f1={train_f1_fmt}  "
                 f"test: acc={test_acc_fmt} prec={test_prec_fmt} rec={test_rec_fmt} f1={test_f1_fmt}"
             )
+            if metrics.get("search_summary"):
+                ss = metrics["search_summary"]
+                print(
+                    f"    search: best={ss.get('best_source')} "
+                    f"grid_best={ss.get('grid_best_auc')} bayes_best={ss.get('bayes_best_auc')}"
+                )
+            if metrics.get("performance_degradation") is not None:
+                print(
+                    f"    walk-forward drift: {metrics['performance_degradation']:+.4f} "
+                    "(test_auc end-start)"
+                )
             print(f"  Feature columns used ({cfg['name']}): {len(metrics['features'])}")
 
         if verbose:
@@ -224,6 +326,7 @@ def train_symbol(
                 "status": "ok",
                 "model_path": path,
                 "baselines": baselines,
+                "feature_cache": cached_from_store,
                 **metrics,
             }
         )
@@ -258,6 +361,39 @@ def main() -> None:
         default=5,
         help="Time-series CV folds (default: 5).",
     )
+    parser.add_argument(
+        "--bayes-trials",
+        type=int,
+        default=20,
+        help="Optuna Bayesian search trials to run alongside the grid search.",
+    )
+    parser.add_argument(
+        "--no-feature-store",
+        action="store_true",
+        help="Disable the feature store cache (recompute features every run).",
+    )
+    parser.add_argument(
+        "--feature-store-dir",
+        default=None,
+        help="Custom directory for persisted features (default: project feature_store/).",
+    )
+    parser.add_argument(
+        "--incremental",
+        action="store_true",
+        help="Apply an incremental update to an existing model instead of full retraining.",
+    )
+    parser.add_argument(
+        "--incremental-window",
+        type=int,
+        default=500,
+        help="Rows from the tail of the dataset used for incremental updates.",
+    )
+    parser.add_argument(
+        "--incremental-rounds",
+        type=int,
+        default=200,
+        help="Additional boosting rounds when incrementally updating.",
+    )
     args = parser.parse_args()
 
     results = []
@@ -268,6 +404,12 @@ def main() -> None:
                 interval=args.interval,
                 limit=args.limit,
                 n_splits=args.splits,
+                use_feature_store=not args.no_feature_store,
+                feature_store_dir=args.feature_store_dir,
+                incremental=args.incremental,
+                incremental_window=args.incremental_window,
+                incremental_rounds=args.incremental_rounds,
+                bayes_trials=args.bayes_trials,
             )
         )
 
