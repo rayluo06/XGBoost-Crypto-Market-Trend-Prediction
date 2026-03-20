@@ -76,6 +76,12 @@ Optional arguments:
 | `--interval` | `1h` | Binance kline interval |
 | `--limit` | `5000` | Number of historical candles (paginated) |
 | `--splits` | `5` | Walk-forward CV folds |
+| `--bayes-trials` | `20` | Optuna Bayesian trials added to the grid search |
+| `--no-feature-store` | off | Recompute features instead of using cached Parquet snapshots |
+| `--feature-store-dir` | `feature_store/` | Custom path for cached features (partitioned by symbol/interval) |
+| `--incremental` | off | Apply an incremental warm-start update to an existing model |
+| `--incremental-window` | `500` | Tail rows used for incremental updates |
+| `--incremental-rounds` | `200` | Extra boosting rounds when incrementally updating |
 
 ### 2. Make predictions
 
@@ -123,7 +129,20 @@ The repository now concentrates solely on producing robust probability
 predictions. Training uses strict chronological splits, cross-validation, and
 early stopping on a held-out validation window (AUC). Feature space is
 regularized by correlation-based selection and rolling, stationary transforms
-to reduce noise.
+to reduce noise. Additional improvements include:
+
+- **Feature stability metrics**: rolling feature importances plus regime-aware
+  correlations filter out unstable predictors across bull/bear and high/low
+  volatility regimes.
+- **Walk-forward optimization**: rolling train/validate/test windows track
+  performance drift to signal when retraining is needed.
+- **Bayesian hyperparameter search**: Optuna augments the coarse grid to find
+  stronger parameter regions faster.
+- **Feature store**: engineered features are cached as Parquet files with
+  versioned metadata (symbol, interval, horizon, feature version) for
+  reproducible runs.
+- **Incremental learning**: optionally warm-start existing models with fresh
+  data between full retrains.
 
 ---
 

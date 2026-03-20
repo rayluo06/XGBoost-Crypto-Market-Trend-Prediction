@@ -19,6 +19,7 @@ env/
 
 # Trained models (large binary files – re-generate with train.py)
 models/
+feature_store/
 
 # IDE
 .vscode/
