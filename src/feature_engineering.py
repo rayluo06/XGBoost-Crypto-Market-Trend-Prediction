@@ -239,9 +239,9 @@ def add_adx(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
 
 def add_lagged_returns(df: pd.DataFrame, max_lag: int = 12) -> pd.DataFrame:
     """Lagged hourly returns to capture short memory effects."""
-    base_return = df["close"].pct_change()
     lagged = {
-        f"return_lag_{lag}": base_return.shift(lag) for lag in range(1, max_lag + 1)
+        f"return_lag_{lag}": df["close"].pct_change(lag)
+        for lag in range(1, max_lag + 1)
     }
     return df.assign(**lagged)
 

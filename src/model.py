@@ -407,7 +407,7 @@ class CryptoTrendModel:
         if not scored:
             return features
         scored_sorted = sorted(scored, key=lambda kv: kv[1], reverse=True)
-        keep_n = max(min_keep, len(scored_sorted))
+        keep_n = min(len(scored_sorted), min_keep)
         return [feat for feat, _ in scored_sorted[:keep_n]]
 
     def _walk_forward_optimization(
@@ -674,7 +674,7 @@ class CryptoTrendModel:
             importance_log, regime_auc_log, regime_consistency
         )
         stability_filtered = self._apply_stability_filter(
-            selected, stability_report, min_keep=max(10, len(selected) // 2 or 1)
+            selected, stability_report, min_keep=max(10, len(selected) // 2)
         )
         if stability_filtered:
             selected = stability_filtered
