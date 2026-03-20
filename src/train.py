@@ -311,10 +311,10 @@ def train_symbol(
                     f"    search: best={ss.get('best_source')} "
                     f"grid_best={ss.get('grid_best_auc')} bayes_best={ss.get('bayes_best_auc')}"
                 )
-            if metrics.get("performance_degradation") is not None:
+            if metrics.get("performance_delta") is not None:
                 print(
-                    f"    walk-forward drift: {metrics['performance_degradation']:+.4f} "
-                    "(positive = degradation from first to last test window)"
+                    f"    walk-forward drift: {metrics['performance_delta']:+.4f} "
+                    "(positive = improvement from first to last test window)"
                 )
             print(f"  Feature columns used ({cfg['name']}): {len(metrics['features'])}")
 

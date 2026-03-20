@@ -54,6 +54,8 @@ MIN_REGIME_SAMPLES = 20
 MIN_STABLE_FEATURES = 10
 BULL_BEAR_THRESHOLD = 1.0
 VOLATILITY_THRESHOLD_METHOD = "median"
+STABILITY_FILTER_DIVISOR = 2
+DEFAULT_INCREMENTAL_ESTIMATORS = 200
 
 _FIT_PARAMS = signature(XGBClassifier.fit).parameters
 SUPPORTS_CALLBACKS = "callbacks" in _FIT_PARAMS
@@ -300,12 +302,9 @@ class CryptoTrendModel:
             masks["bear"] = price < BULL_BEAR_THRESHOLD
         if "realized_volatility_24" in df.columns:
             vol = df["realized_volatility_24"]
-            if VOLATILITY_THRESHOLD_METHOD == "median":
-                threshold = vol.median()
-            elif VOLATILITY_THRESHOLD_METHOD == "mean":
+            threshold = vol.median()
+            if VOLATILITY_THRESHOLD_METHOD == "mean":
                 threshold = vol.mean()
-            else:
-                threshold = vol.median()
             masks["high_vol"] = vol >= threshold
             masks["low_vol"] = vol < threshold
         return masks
@@ -691,7 +690,7 @@ class CryptoTrendModel:
         stability_filtered = self._apply_stability_filter(
             selected,
             stability_report,
-            min_keep=max(MIN_STABLE_FEATURES, len(selected) // 2),
+            min_keep=max(MIN_STABLE_FEATURES, len(selected) // STABILITY_FILTER_DIVISOR),
         )
         if stability_filtered:
             selected = stability_filtered
@@ -699,7 +698,7 @@ class CryptoTrendModel:
         walk_forward_report = self._walk_forward_optimization(
             df, selected, self.params
         )
-        performance_degradation = None
+        performance_delta = None
         if walk_forward_report:
             test_aucs = []
             for window in walk_forward_report:
@@ -710,7 +709,7 @@ class CryptoTrendModel:
                     continue
                 test_aucs.append(val)
             if len(test_aucs) >= 2:
-                performance_degradation = test_aucs[0] - test_aucs[-1]
+                performance_delta = test_aucs[-1] - test_aucs[0]
 
         X = df[selected].values
         y = df[self.target_column].values
@@ -832,7 +831,7 @@ class CryptoTrendModel:
             "search_summary": search_summary,
             "stability_report": stability_report,
             "walk_forward": walk_forward_report,
-            "performance_degradation": performance_degradation,
+            "performance_delta": performance_delta,
         }
 
     def incremental_fit(
@@ -875,7 +874,9 @@ class CryptoTrendModel:
 
         for model in models_to_update:
             params = model.get_params()
-            base_estimators = params.get("n_estimators", self.params.get("n_estimators", 200))
+            base_estimators = params.get(
+                "n_estimators", self.params.get("n_estimators", DEFAULT_INCREMENTAL_ESTIMATORS)
+            )
             params["n_estimators"] = base_estimators + extra_rounds
             updated = XGBClassifier(**params)
             booster = None
@@ -894,7 +895,9 @@ class CryptoTrendModel:
         if not updated_models:
             # If no pre-existing model, fall back to a small fresh fit.
             fallback_params = self.params.copy()
-            fallback_params["n_estimators"] = fallback_params.get("n_estimators", 200) + extra_rounds
+            fallback_params["n_estimators"] = (
+                fallback_params.get("n_estimators", DEFAULT_INCREMENTAL_ESTIMATORS) + extra_rounds
+            )
             updated = XGBClassifier(**fallback_params)
             updated.fit(X_train, y_train, verbose=False)
             updated_models.append(updated)
